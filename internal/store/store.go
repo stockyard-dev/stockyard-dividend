@@ -22,5 +22,26 @@ func now()string{return time.Now().UTC().Format(time.RFC3339)}
 func(d *DB)Create(e *Affiliate)error{e.ID=genID();e.CreatedAt=now();_,err:=d.db.Exec(`INSERT INTO affiliates(id,name,email,code,commission_pct,total_earned,total_paid,referrals,status,created_at)VALUES(?,?,?,?,?,?,?,?,?,?)`,e.ID,e.Name,e.Email,e.Code,e.CommissionPct,e.TotalEarned,e.TotalPaid,e.Referrals,e.Status,e.CreatedAt);return err}
 func(d *DB)Get(id string)*Affiliate{var e Affiliate;if d.db.QueryRow(`SELECT id,name,email,code,commission_pct,total_earned,total_paid,referrals,status,created_at FROM affiliates WHERE id=?`,id).Scan(&e.ID,&e.Name,&e.Email,&e.Code,&e.CommissionPct,&e.TotalEarned,&e.TotalPaid,&e.Referrals,&e.Status,&e.CreatedAt)!=nil{return nil};return &e}
 func(d *DB)List()[]Affiliate{rows,_:=d.db.Query(`SELECT id,name,email,code,commission_pct,total_earned,total_paid,referrals,status,created_at FROM affiliates ORDER BY created_at DESC`);if rows==nil{return nil};defer rows.Close();var o []Affiliate;for rows.Next(){var e Affiliate;rows.Scan(&e.ID,&e.Name,&e.Email,&e.Code,&e.CommissionPct,&e.TotalEarned,&e.TotalPaid,&e.Referrals,&e.Status,&e.CreatedAt);o=append(o,e)};return o}
+func(d *DB)Update(e *Affiliate)error{_,err:=d.db.Exec(`UPDATE affiliates SET name=?,email=?,code=?,commission_pct=?,total_earned=?,total_paid=?,referrals=?,status=? WHERE id=?`,e.Name,e.Email,e.Code,e.CommissionPct,e.TotalEarned,e.TotalPaid,e.Referrals,e.Status,e.ID);return err}
 func(d *DB)Delete(id string)error{_,err:=d.db.Exec(`DELETE FROM affiliates WHERE id=?`,id);return err}
 func(d *DB)Count()int{var n int;d.db.QueryRow(`SELECT COUNT(*) FROM affiliates`).Scan(&n);return n}
+
+func(d *DB)Search(q string, filters map[string]string)[]Affiliate{
+    where:="1=1"
+    args:=[]any{}
+    if q!=""{
+        where+=" AND (name LIKE ? OR email LIKE ?)"
+        args=append(args,"%"+q+"%");args=append(args,"%"+q+"%");
+    }
+    if v,ok:=filters["status"];ok&&v!=""{where+=" AND status=?";args=append(args,v)}
+    rows,_:=d.db.Query(`SELECT id,name,email,code,commission_pct,total_earned,total_paid,referrals,status,created_at FROM affiliates WHERE `+where+` ORDER BY created_at DESC`,args...)
+    if rows==nil{return nil};defer rows.Close()
+    var o []Affiliate;for rows.Next(){var e Affiliate;rows.Scan(&e.ID,&e.Name,&e.Email,&e.Code,&e.CommissionPct,&e.TotalEarned,&e.TotalPaid,&e.Referrals,&e.Status,&e.CreatedAt);o=append(o,e)};return o
+}
+
+func(d *DB)Stats()map[string]any{
+    m:=map[string]any{"total":d.Count()}
+    rows,_:=d.db.Query(`SELECT status,COUNT(*) FROM affiliates GROUP BY status`)
+    if rows!=nil{defer rows.Close();by:=map[string]int{};for rows.Next(){var s string;var c int;rows.Scan(&s,&c);by[s]=c};m["by_status"]=by}
+    return m
+}
