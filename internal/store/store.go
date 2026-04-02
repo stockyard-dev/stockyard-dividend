@@ -1,13 +1,23 @@
 package store
-import("database/sql";"fmt";"os";"path/filepath";"time";_ "modernc.org/sqlite")
-type DB struct{*sql.DB}
-type Referral struct{ID int64 `json:"id"`;Code string `json:"code"`;Affiliate string `json:"affiliate"`;Email string `json:"email"`;Signups int `json:"signups"`;CommissionCents int64 `json:"commission_cents"`;Active bool `json:"active"`;CreatedAt time.Time `json:"created_at"`}
-type Signup struct{ID int64 `json:"id"`;ReferralID int64 `json:"referral_id"`;Email string `json:"email"`;CommissionCents int64 `json:"commission_cents"`;Paid bool `json:"paid"`;CreatedAt time.Time `json:"created_at"`}
-func Open(d string)(*DB,error){os.MkdirAll(d,0755);dsn:=filepath.Join(d,"dividend.db")+"?_journal_mode=WAL&_busy_timeout=5000";db,err:=sql.Open("sqlite",dsn);if err!=nil{return nil,fmt.Errorf("open: %w",err)};db.SetMaxOpenConns(1);migrate(db);return &DB{db},nil}
-func migrate(db *sql.DB){db.Exec(`CREATE TABLE IF NOT EXISTS referrals(id INTEGER PRIMARY KEY AUTOINCREMENT,code TEXT NOT NULL UNIQUE,affiliate TEXT NOT NULL,email TEXT DEFAULT '',signups INTEGER DEFAULT 0,commission_cents INTEGER DEFAULT 0,active INTEGER DEFAULT 1,created_at DATETIME DEFAULT CURRENT_TIMESTAMP);CREATE TABLE IF NOT EXISTS signups(id INTEGER PRIMARY KEY AUTOINCREMENT,referral_id INTEGER NOT NULL,email TEXT NOT NULL,commission_cents INTEGER DEFAULT 0,paid INTEGER DEFAULT 0,created_at DATETIME DEFAULT CURRENT_TIMESTAMP)`)}
-func(db *DB)Create(r *Referral)error{act:=1;if !r.Active{act=0};res,err:=db.Exec(`INSERT INTO referrals(code,affiliate,email,commission_cents,active)VALUES(?,?,?,?,?)`,r.Code,r.Affiliate,r.Email,r.CommissionCents,act);if err!=nil{return err};r.ID,_=res.LastInsertId();return nil}
-func(db *DB)List()([]Referral,error){rows,_:=db.Query(`SELECT r.id,r.code,r.affiliate,r.email,COUNT(s.id),r.commission_cents,r.active,r.created_at FROM referrals r LEFT JOIN signups s ON s.referral_id=r.id GROUP BY r.id ORDER BY r.created_at DESC`);defer rows.Close();var out[]Referral;for rows.Next(){var r Referral;var act int;rows.Scan(&r.ID,&r.Code,&r.Affiliate,&r.Email,&r.Signups,&r.CommissionCents,&act,&r.CreatedAt);r.Active=act==1;out=append(out,r)};return out,nil}
-func(db *DB)RecordSignup(s *Signup){res,_:=db.Exec(`INSERT INTO signups(referral_id,email,commission_cents)VALUES(?,?,?)`,s.ReferralID,s.Email,s.CommissionCents);s.ID,_=res.LastInsertId()}
-func(db *DB)MarkPaid(referralID int64){db.Exec(`UPDATE signups SET paid=1 WHERE referral_id=? AND paid=0`,referralID)}
-func(db *DB)Delete(id int64){db.Exec(`DELETE FROM signups WHERE referral_id=?`,id);db.Exec(`DELETE FROM referrals WHERE id=?`,id)}
-func(db *DB)Stats()(map[string]interface{},error){var codes,signups int;var unpaid int64;db.QueryRow(`SELECT COUNT(*) FROM referrals`).Scan(&codes);db.QueryRow(`SELECT COUNT(*) FROM signups`).Scan(&signups);db.QueryRow(`SELECT COALESCE(SUM(commission_cents),0) FROM signups WHERE paid=0`).Scan(&unpaid);return map[string]interface{}{"referral_codes":codes,"total_signups":signups,"unpaid_commission_cents":unpaid},nil}
+import ("database/sql";"fmt";"os";"path/filepath";"time";_ "modernc.org/sqlite")
+type DB struct{db *sql.DB}
+type Item struct{
+	ID string `json:"id"`
+	Name string `json:"name"`
+	Description string `json:"description"`
+	Status string `json:"status"`
+	Category string `json:"category"`
+	Tags string `json:"tags"`
+	CreatedAt string `json:"created_at"`
+}
+func Open(d string)(*DB,error){if err:=os.MkdirAll(d,0755);err!=nil{return nil,err};db,err:=sql.Open("sqlite",filepath.Join(d,"dividend.db")+"?_journal_mode=WAL&_busy_timeout=5000");if err!=nil{return nil,err}
+db.Exec(`CREATE TABLE IF NOT EXISTS items(id TEXT PRIMARY KEY,name TEXT NOT NULL,description TEXT DEFAULT '',status TEXT DEFAULT 'active',category TEXT DEFAULT '',tags TEXT DEFAULT '',created_at TEXT DEFAULT(datetime('now')))`)
+return &DB{db:db},nil}
+func(d *DB)Close()error{return d.db.Close()}
+func genID()string{return fmt.Sprintf("%d",time.Now().UnixNano())}
+func now()string{return time.Now().UTC().Format(time.RFC3339)}
+func(d *DB)Create(e *Item)error{e.ID=genID();e.CreatedAt=now();_,err:=d.db.Exec(`INSERT INTO items(id,name,description,status,category,tags,created_at)VALUES(?,?,?,?,?,?,?)`,e.ID,e.Name,e.Description,e.Status,e.Category,e.Tags,e.CreatedAt);return err}
+func(d *DB)Get(id string)*Item{var e Item;if d.db.QueryRow(`SELECT id,name,description,status,category,tags,created_at FROM items WHERE id=?`,id).Scan(&e.ID,&e.Name,&e.Description,&e.Status,&e.Category,&e.Tags,&e.CreatedAt)!=nil{return nil};return &e}
+func(d *DB)List()[]Item{rows,_:=d.db.Query(`SELECT id,name,description,status,category,tags,created_at FROM items ORDER BY created_at DESC`);if rows==nil{return nil};defer rows.Close();var o []Item;for rows.Next(){var e Item;rows.Scan(&e.ID,&e.Name,&e.Description,&e.Status,&e.Category,&e.Tags,&e.CreatedAt);o=append(o,e)};return o}
+func(d *DB)Delete(id string)error{_,err:=d.db.Exec(`DELETE FROM items WHERE id=?`,id);return err}
+func(d *DB)Count()int{var n int;d.db.QueryRow(`SELECT COUNT(*) FROM items`).Scan(&n);return n}
