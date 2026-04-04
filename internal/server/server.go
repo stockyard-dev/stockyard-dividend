@@ -33,6 +33,7 @@ patch.Name=existing.Name};if patch.Email==""{
 patch.Email=existing.Email};if patch.Code==""{
 patch.Code=existing.Code};if patch.Status==""{
 patch.Status=existing.Status}
+    if patch.CommissionPct==0{patch.CommissionPct=existing.CommissionPct};if patch.TotalEarned==0{patch.TotalEarned=existing.TotalEarned};if patch.TotalPaid==0{patch.TotalPaid=existing.TotalPaid};if patch.Referrals==0{patch.Referrals=existing.Referrals}
     s.db.Update(&patch);wj(w,200,s.db.Get(patch.ID))
 }
 func(s *Server)del(w http.ResponseWriter,r *http.Request){s.db.Delete(r.PathValue("id"));wj(w,200,map[string]string{"deleted":"ok"})}
